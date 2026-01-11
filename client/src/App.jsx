@@ -422,6 +422,122 @@ const VideoModal = ({ video, onClose, onNext, onPrev, hasNext, hasPrev, onChange
   );
 };
 
+const ManagerModal = ({ isOpen, onClose }) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState({}); // { filename: true }
+
+  useEffect(() => {
+    if (isOpen) fetchStatus();
+  }, [isOpen]);
+
+  const fetchStatus = () => {
+    setLoading(true);
+    fetch('/api/manager/status')
+      .then(res => res.json())
+      .then(setData)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  const generateAsset = (videoName, type) => {
+    setGenerating(prev => ({ ...prev, [videoName]: true }));
+    fetch('/api/manager/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoName, type })
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (!res.success) alert('Failed: ' + res.error);
+      })
+      .catch(console.error);
+    // Note: Generation is async, so we don't clear 'generating' immediately 
+    // or we could use polling/ws for real progress. For now, just show triggered state.
+    setTimeout(() => {
+      setGenerating(prev => {
+        const next = { ...prev };
+        delete next[videoName];
+        return next;
+      });
+      fetchStatus(); // Refresh list to see if stats changed (though generation takes time)
+    }, 2000);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4">
+      <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-4xl h-[80vh] flex flex-col relative">
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+          <h3 className="text-lg font-medium text-white flex items-center space-x-2">
+            <Settings size={20} />
+            <span>Media Manager</span>
+          </h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex justify-center py-8 text-zinc-500">Scanning Library...</div>
+          ) : data.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-zinc-500">
+              <Check size={48} className="mb-4 text-green-500" />
+              <p>All assets are in sync!</p>
+            </div>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-zinc-500 border-b border-zinc-800">
+                  <th className="pb-2 font-medium">Video File</th>
+                  <th className="pb-2 font-medium text-center">Thumbnail (JPG)</th>
+                  <th className="pb-2 font-medium text-center">Preview (MP4)</th>
+                  <th className="pb-2 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800">
+                {data.map((item) => (
+                  <tr key={item.name} className="group hover:bg-zinc-900/50">
+                    <td className="py-3 pr-4 text-zinc-300 font-mono text-xs">{item.name}</td>
+
+                    <td className="py-3 text-center">
+                      {item.hasThumbnail ? (
+                        <span className="inline-flex items-center text-green-500 bg-green-500/10 px-2 py-0.5 rounded text-[10px] font-bold">OK</span>
+                      ) : (
+                        <span className="inline-flex items-center text-red-500 bg-red-500/10 px-2 py-0.5 rounded text-[10px] font-bold">MISSING</span>
+                      )}
+                    </td>
+
+                    <td className="py-3 text-center">
+                      {item.hasMp4 ? (
+                        <span className="inline-flex items-center text-green-500 bg-green-500/10 px-2 py-0.5 rounded text-[10px] font-bold">OK</span>
+                      ) : (
+                        <span className="inline-flex items-center text-red-500 bg-red-500/10 px-2 py-0.5 rounded text-[10px] font-bold">MISSING</span>
+                      )}
+                    </td>
+
+                    <td className="py-3 text-right space-x-2">
+                      {!item.hasMp4 && (
+                        <button
+                          onClick={() => generateAsset(item.name, 'mp4')}
+                          disabled={generating[item.name]}
+                          className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded text-xs transition-colors"
+                        >
+                          {generating[item.name] ? 'Queued...' : 'Generate MP4'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const getResolutionLabel = (resString) => {
   if (!resString || resString === 'Unknown') return 'HD';
   const width = parseInt(resString.split('x')[0]);
@@ -436,6 +552,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showManagerModal, setShowManagerModal] = useState(false);
   const [videoToUpdate, setVideoToUpdate] = useState(null);
   const [thumbnailSize, setThumbnailSize] = useState(300);
   const [searchQuery, setSearchQuery] = useState('');
@@ -538,6 +655,8 @@ function App() {
         }
       `}</style>
 
+      <ManagerModal isOpen={showManagerModal} onClose={() => setShowManagerModal(false)} />
+
       {/* Upload Modal */}
       <UploadModal
         isOpen={showUploadModal}
@@ -563,7 +682,7 @@ function App() {
         <div className="h-16 border-b border-zinc-900 flex items-center justify-between px-6 bg-black/50 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center space-x-4">
             <Film className="text-white" size={24} />
-            <h1 className="text-xl font-bold tracking-tight">VideoGallery</h1>
+            <h1 className="text-xl font-bold tracking-tight">Koray Birand Film Archive</h1>
             <div className="h-4 w-px bg-zinc-800 mx-2"></div>
             <span className="text-xs text-zinc-500 uppercase tracking-widest font-bold">Local Library</span>
           </div>
@@ -580,13 +699,22 @@ function App() {
               />
             </div>
 
-            <button
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              className="px-4 py-2 text-xs font-medium rounded-md bg-zinc-800 text-white hover:bg-zinc-700 flex items-center space-x-2 transition-colors border border-zinc-700"
-            >
-              <ArrowUpDown size={14} />
-              <span>{sortOrder === 'asc' ? 'Sort A-Z' : 'Sort Z-A'}</span>
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setShowManagerModal(true)}
+                className="px-4 py-2 text-xs font-medium rounded-md bg-zinc-800 text-white hover:bg-zinc-700 flex items-center space-x-2 transition-colors border border-zinc-700"
+              >
+                <Settings size={14} />
+                <span>Manager</span>
+              </button>
+              <button
+                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                className="px-4 py-2 text-xs font-medium rounded-md bg-zinc-800 text-white hover:bg-zinc-700 flex items-center space-x-2 transition-colors border border-zinc-700"
+              >
+                <ArrowUpDown size={14} />
+                <span>{sortOrder === 'asc' ? 'Sort A-Z' : 'Sort Z-A'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center space-x-6 ml-4">

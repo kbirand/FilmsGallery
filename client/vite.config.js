@@ -6,9 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/videos': 'http://localhost:3000',
-      '/thumbnails': 'http://localhost:3000'
+      '/api': 'http://localhost:3004',
+      '/videos': 'http://localhost:3004',
+      '/thumbnails': 'http://localhost:3004'
     }
   }
 })

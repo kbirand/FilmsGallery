@@ -11,7 +11,7 @@ services:
       - "3005:3000"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=3004
       # Point to the internal volume mount
       - VIDEO_PATH=/app/videos
       - MP4_PATH=/app/mp4

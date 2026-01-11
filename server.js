@@ -334,6 +334,101 @@ if (!fs.existsSync(MP4_DIR)) {
   console.log('MP4_DIR:', MP4_DIR);
 }
 
+// Media Manager Endpoints
+
+// Check Status of All Videos
+app.get('/api/manager/status', async (req, res) => {
+  log('Checking status of all videos for Media Manager', 'INFO');
+  try {
+    const videoFiles = await glob('**/*.{mp4,webm,mov,mkv}', { cwd: VIDEOS_DIR });
+    const statusList = [];
+
+    for (const file of videoFiles) {
+      const filePath = path.join(VIDEOS_DIR, file);
+      const safeFileName = file.split(path.sep).join('__');
+      const videoBasename = path.basename(file, path.extname(file));
+
+      // Paths
+      const thumbnailPath = path.join(THUMBNAILS_DIR, `${safeFileName}.jpg`);
+      const previewMp4Path = path.join(MP4_DIR, `${videoBasename}.mp4`);
+      const previewMp4Fallback = path.join(MP4_DIR, `${videoBasename}_1.mp4`);
+
+      // Check existence
+      const hasThumbnail = fs.existsSync(thumbnailPath);
+      const hasMp4 = fs.existsSync(previewMp4Path) || fs.existsSync(previewMp4Fallback);
+
+      if (!hasThumbnail || !hasMp4) {
+        statusList.push({
+          name: file,
+          hasThumbnail,
+          hasMp4
+        });
+      }
+    }
+
+    res.json(statusList);
+  } catch (err) {
+    log(`Manager Status Error: ${err.message}`, 'ERROR');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate Missing Assets
+app.post('/api/manager/generate', async (req, res) => {
+  const { videoName, type } = req.body;
+  if (!videoName || !type) return res.status(400).send('Missing parameters');
+
+  const filePath = path.join(VIDEOS_DIR, videoName);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Video not found');
+
+  log(`Manager generation request: ${videoName} [${type}]`, 'INFO');
+
+  try {
+    if (type === 'mp4') {
+      const videoBasename = path.basename(videoName, path.extname(videoName));
+      const outputPath = path.join(MP4_DIR, `${videoBasename}.mp4`);
+
+      if (fs.existsSync(outputPath)) {
+        return res.json({ success: true, message: 'MP4 already exists' });
+      }
+
+      // Ensure MP4 Directory exists
+      if (!fs.existsSync(MP4_DIR)) fs.mkdirSync(MP4_DIR, { recursive: true });
+
+      // Run FFmpeg with User Settings
+      // 4K (3840x2160), High Profile 5.2, 40Mbps VBR, H.264
+      ffmpeg(filePath)
+        .outputOptions([
+          '-c:v libx264',
+          '-profile:v high',
+          '-level 5.2',
+          '-b:v 40M',
+          '-s 3840x2160',
+          '-pix_fmt yuv420p', // Ensure compatibility
+          '-movflags +faststart', // Internet streaming optimized
+          '-c:a aac',
+          '-b:a 192k'
+        ])
+        .output(outputPath)
+        .on('end', () => {
+          log(`Generated 4K MP4 for ${videoName}`, 'INFO');
+        })
+        .on('error', (err) => {
+          log(`MP4 Generation Error for ${videoName}: ${err.message}`, 'ERROR');
+        })
+        .run();
+
+      // Return immediately - process runs in background
+      res.json({ success: true, message: 'MP4 generation started' });
+    } else {
+      res.status(400).send('Invalid type');
+    }
+  } catch (err) {
+    log(`Manager Generate Error: ${err.message}`, 'ERROR');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Stream Video Endpoint (Transcoding or Direct Stream)
 app.get('/api/stream', (req, res) => {
   const videoFile = req.query.file;
